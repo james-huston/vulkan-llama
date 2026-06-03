@@ -26,3 +26,26 @@ model strategy is **MoE-first**.
 The HX 370's XDNA2 NPU became Linux-usable for LLMs in **March 2026** (Lemonade +
 FastFlowLM). It's planned as a **Phase 2 complement** to benchmark against the
 iGPU — see [docs/research/npu-xdna2-2026-06.md](docs/research/npu-xdna2-2026-06.md).
+
+## Quick start (on the HX 370, Ubuntu 26.04)
+
+See [docs/research/ubuntu-2604-hx370.md](docs/research/ubuntu-2604-hx370.md) for host prep (IOMMU, groups, `vulkaninfo`).
+
+```bash
+cp .env.example .env        # set MODELS_DIR + RENDER_GID/VIDEO_GID (getent group render video)
+make models-apply           # download enabled GGUFs + generate config/llama-swap.yaml
+docker compose up -d --build
+curl http://localhost:11434/v1/models
+make sync-litellm           # optional: mirror into LiteLLM
+make test-models            # smoke test
+```
+
+Workflow and tooling mirror [`battlemage-llama`](../battlemage-llama) — `models.yaml`
+is the source of truth; `make models-apply` regenerates the (gitignored)
+`config/llama-swap.yaml`. The only backend change is the build (Vulkan) and the
+generated `--device Vulkan0` flag.
+
+> **Scaffold status:** Dockerfile (Vulkan), compose, scripts, MoE-first
+> `models.yaml`, and the apply→config pipeline are in place and validated
+> (dry-run). Pending real-hardware validation + a few AMD adaptations — see
+> [story 001](docs/improvements/001-bootstrap-vulkan-llama.md).

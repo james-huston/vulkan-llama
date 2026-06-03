@@ -1,0 +1,123 @@
+# vulkan-llama — model manifest (source of truth)
+#
+# Edit this file; `make models-apply` downloads missing enabled GGUFs and
+# regenerates config/llama-swap.yaml. Then `make sync-litellm` / `make test-models`.
+# Schema mirrors battlemage-llama (path: OR repo:+file:[+dir:+out:], ctx, template,
+# reasoning/reasoning_format, temp, top_p, extra, device, decode_tps, litellm:).
+#
+# HARDWARE STRATEGY — Ryzen AI 9 HX 370 (Radeon 890M, 96 GB unified, ~120 GB/s):
+#   * Decode is MEMORY-BANDWIDTH-BOUND, so MoE models (few active params) are the
+#     sweet spot — they're listed first and enabled.
+#   * The 96 GB lets us also hold big dense/MoE models for capacity (slow but
+#     possible) — listed as disabled candidates.
+#   * Watch the decode-vs-context cliff (see the battlemage 35B investigation):
+#     keep ctx modest on the iGPU until benchmarked.
+#   * decode_tps below are PLACEHOLDER ESTIMATES — replace with llama-bench
+#     numbers on the 890M in Phase 1 (they drive LiteLLM cost derivation).
+
+cost:
+  watts: 80           # APU package draw under inference (Strix Point ~54-80 W)
+  usd_per_kwh: 0.18
+  amortization: 3
+  input_factor: 4
+
+models:
+  # ===========================================================================
+  # MoE workhorses — low active params = fast on bandwidth-limited memory
+  # ===========================================================================
+
+  - name: gpt-oss-20b
+    enabled: true
+    decode_tps: 40
+    litellm:
+      description: "OpenAI gpt-oss 20B-A3.6B (MoE, native MXFP4); tools + reasoning."
+      supports_function_calling: true
+      supports_tool_choice: true
+      supports_reasoning: true
+    ctx: 65536
+    repo: ggml-org/gpt-oss-20b-GGUF
+    file: gpt-oss-20b-mxfp4.gguf
+    dir: gpt-oss-20b
+    out: mxfp4.gguf
+    source: "https://huggingface.co/ggml-org/gpt-oss-20b-GGUF"
+    notes: "Smallest active-param MoE (A3.6B) — likely the fastest model here. Good default agent."
+
+  - name: qwen3-coder-30b
+    enabled: true
+    decode_tps: 35
+    litellm:
+      description: "Qwen3 Coder 30B-A3B (MoE) — primary coder; full tool calling."
+      supports_function_calling: true
+      supports_tool_choice: true
+      supports_reasoning: true
+    ctx: 65536
+    reasoning: true
+    repo: unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF
+    file: Qwen3-Coder-30B-A3B-Instruct-Q4_K_M.gguf
+    dir: qwen3-coder-30b
+    out: Q4_K_M.gguf
+    source: "https://huggingface.co/unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF"
+    notes: "MoE A3B — ideal for this APU (low active params). The opencode 'build' default candidate."
+
+  - name: qwen3.6-35b-a3b-q4-thinking
+    enabled: true
+    decode_tps: 30
+    litellm:
+      description: "Qwen3.6 35B-A3B (MoE, hybrid DeltaNet) reasoning exposed (deepseek)."
+      supports_function_calling: true
+      supports_tool_choice: false
+      supports_reasoning: true
+    ctx: 65536
+    temp: 0.6
+    top_p: 0.95
+    reasoning_format: deepseek
+    repo: unsloth/Qwen3.6-35B-A3B-GGUF
+    file: Qwen3.6-35B-A3B-UD-Q4_K_M.gguf
+    dir: qwen3.6-35b-a3b
+    out: Q4_K_M.gguf
+    source: "https://huggingface.co/unsloth/Qwen3.6-35B-A3B-GGUF"
+    notes: "MoE A3B. Heavy thinker — keep ctx modest (decode-vs-context cliff on iGPU). Reserve for reasoning, not the hot loop."
+
+  # ===========================================================================
+  # Dense — capable but slower (full weights read per token, bandwidth-bound)
+  # ===========================================================================
+
+  - name: qwen3.6-27b-q4
+    enabled: true
+    decode_tps: 8
+    litellm:
+      description: "Qwen3.6 dense 27B — strong coding; slower (dense, bandwidth-bound)."
+      supports_function_calling: true
+      supports_tool_choice: false
+      supports_reasoning: false
+    ctx: 32768
+    repo: unsloth/Qwen3.6-27B-GGUF
+    file: Qwen3.6-27B-Q4_K_M.gguf
+    dir: qwen3.6-27b
+    out: Q4_K_M.gguf
+    source: "https://huggingface.co/unsloth/Qwen3.6-27B-GGUF"
+    notes: "Dense 27B (~16 GB) — decode ~bandwidth/16GB. Use when quality > speed."
+
+  # ===========================================================================
+  # Capacity candidates — exploit the 96 GB (disabled; enable to test)
+  # ===========================================================================
+
+  - name: glm-4.7-flash-q4
+    enabled: false
+    decode_tps: 12
+    litellm:
+      description: "GLM-4.7-Flash 106B/A12B (MoE) — big model, A12B active."
+      supports_function_calling: true
+      supports_tool_choice: true
+      supports_reasoning: true
+    ctx: 32768
+    template: glm-4.7-flash.jinja
+    reasoning: true
+    temp: 0.6
+    top_p: 0.95
+    repo: unsloth/GLM-4.7-Flash-GGUF
+    file: GLM-4.7-Flash-Q4_K_XL.gguf
+    dir: glm-4.7-flash
+    out: Q4_K_XL.gguf
+    source: "https://huggingface.co/unsloth/GLM-4.7-Flash-GGUF"
+    notes: "106B/A12B MoE (~60+ GB) — only fits thanks to the 96 GB. A12B active => slower than the A3B models. Capacity showcase; enable to benchmark."

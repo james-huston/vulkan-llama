@@ -62,18 +62,32 @@ a unified server) as a **tracked Phase 2 experiment** — because the research f
 ### Phase 1 — Vulkan iGPU workhorse  *(primary deliverable)*
 - [ ] **OS:** Linux bare-metal — **Ubuntu 26.04 LTS "Resolute Raccoon"** (kernel
       7.0, native `amdxdna` NPU driver; LTS support). Enable **IOMMU** in BIOS and
-      update `linux-firmware` (≥20260221) at install. See OS note below.
-- [ ] Port the `battlemage-llama` scaffolding: `docker-compose.yml`, `Makefile`,
-      `scripts/` (apply-models, sync-litellm, status, test-models), `models.yaml`,
-      `tests/`, docs structure.
-- [ ] **Dockerfile**: build llama.cpp with `-DGGML_VULKAN=ON` (Mesa RADV /
-      Vulkan SDK) instead of SYCL; bundle `llama-swap`. Pass `/dev/dri` through.
-- [ ] **`models.yaml`**: MoE-first lineup (Qwen3-30B-A3B, Qwen3.6-35B-A3B,
-      gpt-oss-20B, plus a dense coder); exploit the 96 GB for capacity.
-- [ ] Verify: model loads on the 890M (Vulkan device shows up), OpenAI `/v1`
-      responds, llama-swap hot-swap works, LiteLLM sync works.
-- [ ] **Benchmark** decode-vs-context and tok/s per model (llama-bench), like we
-      did for the B70 — sets the baseline the NPU must beat.
+      update `linux-firmware` (≥20260221) at install. *(user installing)*
+- [x] Port the `battlemage-llama` scaffolding: `Makefile`, `scripts/`
+      (apply-models, sync-litellm, status, test-models, add-model), `templates/`,
+      `tests/`, `.env.example`, docs structure. *(based on the proven battlemage
+      scripts, not the qwen-bootstrapped rocm-llama ones.)*
+- [x] **Dockerfile**: llama.cpp `-DGGML_VULKAN=ON` (Mesa RADV) + `llama-swap`,
+      Ubuntu 26.04 base; `docker-compose.yml` passes `/dev/dri` (no kfd/runtime).
+- [x] **apply-models.py**: generates `--device Vulkan0` (was `--device SYCL0`);
+      `device:` overridable per model.
+- [x] **`models.yaml`**: MoE-first (gpt-oss-20B, Qwen3-Coder-30B-A3B,
+      Qwen3.6-35B-A3B) + dense Qwen3.6-27B + a 96 GB capacity candidate
+      (GLM-4.7-Flash, disabled). Validated via `apply-models --dry-run`.
+- [ ] **Verify on hardware:** `vulkaninfo` sees the 890M; a model loads via
+      `-ngl 99` on Vulkan0; OpenAI `/v1` responds; llama-swap hot-swap works;
+      `make sync-litellm` works.
+- [ ] **Benchmark** decode-vs-context and tok/s per model (llama-bench) on the
+      890M — replace the placeholder `decode_tps` and set the baseline the NPU
+      must beat.
+
+**Remaining AMD adaptations (TODO):**
+- `scripts/status.py` uses Intel `xpu-smi` → swap to `amdgpu_top`/`radeontop`.
+- `config/llama-swap.example.yaml` still shows SYCL flags → regenerate/refresh.
+- Confirm `--device Vulkan0` is the right selector on real hardware (vs relying
+  on `GGML_VK_VISIBLE_DEVICES`); single-iGPU may not need `-sm none`.
+- `templates/` carried over from battlemage — prune to what this lineup uses.
+- sd-server (image gen) deferred — add a `-DSD_VULKAN=ON` build block later.
 
 ### Phase 2 — NPU evaluation  *(complement; evidence-led)*
 - [ ] Install the Linux NPU stack: `ppa:lemonade-team/stable` →

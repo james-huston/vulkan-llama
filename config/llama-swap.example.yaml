@@ -1,0 +1,313 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/mostlygeek/llama-swap/refs/heads/main/config-schema.json
+#
+# battlemage-llama — llama-swap configuration example
+#
+# SETUP:
+#   1. Copy this file to config/llama-swap.yaml (the real one is gitignored).
+#   2. Download the GGUFs you want from HuggingFace into the directory you've
+#      bind-mounted as MODELS_DIR (default: /opt/apps/ollama-models).
+#   3. Uncomment + edit the model blocks you want, adjusting --model paths
+#      to where your GGUFs actually live inside the container (/models/...).
+#
+# All paths below are paths AS SEEN INSIDE THE CONTAINER:
+#   /opt/llama-cpp/bin/llama-server  — compiled inside the image
+#   /models/                         — bind-mounted model store (host MODELS_DIR)
+#   /templates/                      — bind-mounted Jinja chat templates
+#                                      (this repo's ./templates/ directory)
+#
+# PERFORMANCE NOTES for Battlemage (B70, B60, B50):
+#   * Q4_K_M / Q5_K_M are the sweet spot (fastest, smallest). Q8_0 USED to be
+#     ~4× slower on Xe2, but that kernel regression is fixed (llama.cpp #21527):
+#     now ~1.6× slower than Q4 (measured B70 Ministral-14B: 53 vs 32 t/s), so Q8_0
+#     is a viable quality option for models that fit. Was: #21517.
+#   * Do NOT add KV cache quantization flags (-ctk q8_0 -ctv q8_0) — a SEPARATE
+#     issue from Q8_0 weights; still regresses decode on Battlemage SYCL kernels.
+#   * Flash attention (-fa) is auto-enabled and works fine on Battlemage.
+#   * --device SYCL0 -sm none targets the first Level-Zero GPU only; check
+#     enumeration with `docker compose exec llama-swap sycl-ls`.
+#
+# TOOL CALLING NOTES:
+#   * --jinja is REQUIRED for tool calling. Without it, llama-server uses a
+#     legacy template path that ignores the `tools` array in OpenAI requests.
+#   * --reasoning-format deepseek routes <think> blocks into reasoning_content
+#     so the tool-call parser stays clean. Safe to set on non-thinking models.
+#   * Some GGUFs have embedded chat templates that lack tool-aware branches.
+#     Workaround: --chat-template-file pointing at a known-good Jinja from
+#     ../templates/ (we ship the ones we've validated).
+#   * Verify any new model with: ./tests/tool_use/run.sh <model-name>
+#
+# MEASURED ON ARC PRO B70, llama.cpp master @ 2026-04-29:
+#
+#                          decode  prefill  tool   max ctx  notes
+#   qwen3-coder-30b        ~83 t/s  ~44 t/s  full   128k    MoE A3B; fastest
+#   qwen3-30b-a3b          ~83 t/s  ~33 t/s  full   128k    MoE A3B reasoning
+#   glm-4.7-flash-q4       ~42 t/s ~109 t/s  full   128k    MoE A12B coder/agent
+#   glm-4.7-flash-q5       ~36 t/s  ~34 t/s  full    64k    MoE A12B, Q5 = best quality
+#   ministral-3-14b-q4     ~48 t/s ~296 t/s  partial(*) 128k 14B reasoning
+#   ministral-3-14b-q5     ~27 t/s ~313 t/s  partial(*) 128k
+#   magistral-small-2509   ~29 t/s ~207 t/s  partial(*)  64k 24B reasoning, Mistral
+#   devstral-small-2-q4    ~28 t/s ~727 t/s  partial(*)  64k 24B SWE-Bench leader
+#   devstral-small-2-q5    ~16 t/s ~809 t/s  full        64k 24B at Q5 (slowest)
+#
+#   (*) Mistral-family models often ignore tool_choice="required" — they emit
+#       a normal answer instead of forcing a call. Don't rely on that flag.
+#       Q5 of Mistral models can additionally fail the multi-turn round-trip
+#       test because Mistral's Jinja enforces 9-char alphanumeric tool-call IDs.
+#
+# CONTEXT-SIZE NOTES:
+#   * MoE models with small active params (Qwen3 A3B, GLM-4.7 A12B Q4) handle
+#     128k cleanly — KV is small relative to weights.
+#   * GLM-4.7-Flash Q5 (20 GiB weights) is capped at 64k because 128k KV
+#     would saturate the 32 GiB VRAM with no margin.
+#   * Dense 24B Mistral models (Magistral, Devstral-2 Q4 and Q5) **segfault
+#     llama-server during the warmup pass at -c 131072** on Battlemage SYCL.
+#     KV allocates fine, the crash happens later. Cap them at -c 65536 until
+#     a fix lands upstream. (Suspected SYCL kernel-grid limit; not filed yet.)
+#   * If you push past these limits, the kernel may also OOM-segfault rather
+#     than fall back gracefully. Test new configurations before deploying.
+#
+# Decode rates above are with empty/short context. Prefill rates have wide
+# variance — short prompts are dominated by setup overhead. For real prefill
+# numbers, prompt llama-bench with ≥512 tokens.
+
+healthCheckTimeout: 180
+startPort: 12800
+
+models:
+
+  # ===========================================================================
+  # TIER 1 — full tool calling, validated. Uncomment what you want to deploy.
+  # ===========================================================================
+
+  # ---------------------------------------------------------------------------
+  # Qwen3 Coder 30B A3B — MoE coder. ~83 t/s decode. RECOMMENDED PRIMARY.
+  # GGUF: bartowski / unsloth / Ollama blob (pull `qwen3-coder:30b` if you have
+  # Ollama installed once just to fetch the blob, then point at it).
+  # ---------------------------------------------------------------------------
+  # qwen3-coder-30b:
+  #   cmd: |
+  #     /opt/llama-cpp/bin/llama-server
+  #     --port ${PORT}
+  #     --model /models/blobs/sha256-<REPLACE-ME>
+  #     --alias qwen3-coder-30b
+  #     --host 127.0.0.1
+  #     -ngl 99
+  #     -c 131072
+  #     --device SYCL0
+  #     -sm none
+  #     --jinja
+  #     --reasoning-format deepseek
+  #   ttl: 600
+
+  # ---------------------------------------------------------------------------
+  # Qwen3 30B A3B Thinking — general reasoning MoE. ~83 t/s decode.
+  # GGUF: bartowski / unsloth / Ollama blob (`qwen3:30b-a3b-thinking`).
+  # ---------------------------------------------------------------------------
+  # qwen3-30b-a3b:
+  #   cmd: |
+  #     /opt/llama-cpp/bin/llama-server
+  #     --port ${PORT}
+  #     --model /models/blobs/sha256-<REPLACE-ME>
+  #     --alias qwen3-30b-a3b
+  #     --host 127.0.0.1
+  #     -ngl 99
+  #     -c 131072
+  #     --device SYCL0
+  #     -sm none
+  #     --jinja
+  #     --reasoning-format deepseek
+  #   ttl: 600
+
+  # ---------------------------------------------------------------------------
+  # GLM-4.7-Flash — 106B/A12B MoE coder+agent. ~42 t/s @ Q4, ~36 t/s @ Q5.
+  # zai's Agent Foundation Model line; topped agent benchmarks at release.
+  # GGUF: https://huggingface.co/unsloth/GLM-4.7-Flash-GGUF
+  # Recommended sampler: --temp 0.6 --top-p 0.95
+  # ---------------------------------------------------------------------------
+  # glm-4.7-flash-q4:
+  #   cmd: |
+  #     /opt/llama-cpp/bin/llama-server
+  #     --port ${PORT}
+  #     --model /models/glm-4.7-flash/Q4_K_XL.gguf
+  #     --alias glm-4.7-flash-q4
+  #     --host 127.0.0.1
+  #     -ngl 99
+  #     -c 131072
+  #     --device SYCL0
+  #     -sm none
+  #     --jinja
+  #     --chat-template-file /templates/glm-4.7-flash.jinja
+  #     --reasoning-format deepseek
+  #     --temp 0.6
+  #     --top-p 0.95
+  #   ttl: 600
+
+  # glm-4.7-flash-q5:
+  #   # Same as q4 but Q5_K_M (~20 GiB weights). Higher quality, slightly slower.
+  #   # Capped at 64k — at 128k the KV would saturate VRAM with no margin.
+  #   cmd: |
+  #     /opt/llama-cpp/bin/llama-server
+  #     --port ${PORT}
+  #     --model /models/glm-4.7-flash/Q5_K_M.gguf
+  #     --alias glm-4.7-flash-q5
+  #     --host 127.0.0.1
+  #     -ngl 99
+  #     -c 65536
+  #     --device SYCL0
+  #     -sm none
+  #     --jinja
+  #     --chat-template-file /templates/glm-4.7-flash.jinja
+  #     --reasoning-format deepseek
+  #     --temp 0.6
+  #     --top-p 0.95
+  #   ttl: 600
+
+  # ---------------------------------------------------------------------------
+  # Devstral Small 2 24B 2512 — Mistral SWE-Bench-Verified leader. Dense 24B.
+  # Q4 has full tool support except `tool_choice:required`. Q5 passes everything
+  # (including the strict required-call test) but decodes at only ~16 t/s.
+  # GGUF: https://huggingface.co/bartowski/mistralai_Devstral-Small-2-24B-Instruct-2512-GGUF
+  # Recommended sampler: --temp 0.15 (Mistral's published agent-mode value).
+  # ---------------------------------------------------------------------------
+  # devstral-small-2-q4:
+  #   # Capped at 64k — dense 24B Mistrals segfault llama-server during the
+  #   # warmup pass at -c 131072 on Battlemage SYCL. See "context-size notes"
+  #   # at the top of this file.
+  #   cmd: |
+  #     /opt/llama-cpp/bin/llama-server
+  #     --port ${PORT}
+  #     --model /models/devstral-small-2-24b/Q4_K_M.gguf
+  #     --alias devstral-small-2-q4
+  #     --host 127.0.0.1
+  #     -ngl 99
+  #     -c 65536
+  #     --device SYCL0
+  #     -sm none
+  #     --jinja
+  #     --chat-template-file /templates/devstral-small-2.jinja
+  #     --temp 0.15
+  #   ttl: 600
+
+  # devstral-small-2-q5:
+  #   # Capped at 64k for the same reason as q4, plus VRAM tightness at Q5
+  #   # (16 GiB weights + 16 GiB KV at 128k saturates the 32 GiB card).
+  #   cmd: |
+  #     /opt/llama-cpp/bin/llama-server
+  #     --port ${PORT}
+  #     --model /models/devstral-small-2-24b/Q5_K_M.gguf
+  #     --alias devstral-small-2-q5
+  #     --host 127.0.0.1
+  #     -ngl 99
+  #     -c 65536
+  #     --device SYCL0
+  #     -sm none
+  #     --jinja
+  #     --chat-template-file /templates/devstral-small-2.jinja
+  #     --temp 0.15
+  #   ttl: 600
+
+  # ===========================================================================
+  # TIER 1.5 — works for normal tool flows; avoid `tool_choice:required`
+  # ===========================================================================
+
+  # ---------------------------------------------------------------------------
+  # Magistral Small 2509 — Mistral 24B reasoning model. ~29 t/s.
+  # Embedded GGUF chat template handles tools; --jinja alone is enough.
+  # GGUF: bartowski / unsloth / mradermacher.
+  # ---------------------------------------------------------------------------
+  # magistral-small-2509:
+  #   # Capped at 64k — same dense-24B-Mistral segfault as Devstral at 128k.
+  #   cmd: |
+  #     /opt/llama-cpp/bin/llama-server
+  #     --port ${PORT}
+  #     --model /models/magistral-small-2509/Magistral-Small-2509-Q4_K_M.gguf
+  #     --alias magistral-small-2509
+  #     --host 127.0.0.1
+  #     -ngl 99
+  #     -c 65536
+  #     --device SYCL0
+  #     -sm none
+  #     --jinja
+  #   ttl: 600
+
+  # ---------------------------------------------------------------------------
+  # Ministral 3 14B Reasoning 2512 — fast 14B planner. ~48 t/s @ Q4.
+  # Tiny footprint leaves headroom for 128k context if you need it.
+  # GGUF: https://huggingface.co/unsloth/Ministral-3-14B-Reasoning-2512-GGUF
+  # Note: Q4 outperforms Q5 on tool-use tests in our suite — Q5 hits a
+  # multi-turn round-trip failure (Mistral's 9-char tool-call-ID enforcement).
+  # ---------------------------------------------------------------------------
+  # ministral-3-14b-q4:
+  #   cmd: |
+  #     /opt/llama-cpp/bin/llama-server
+  #     --port ${PORT}
+  #     --model /models/ministral-3-14b-reasoning/Q4_K_M.gguf
+  #     --alias ministral-3-14b-q4
+  #     --host 127.0.0.1
+  #     -ngl 99
+  #     -c 131072
+  #     --device SYCL0
+  #     -sm none
+  #     --jinja
+  #     --chat-template-file /templates/ministral-3-reasoning.jinja
+  #     --reasoning-format deepseek
+  #     --temp 0.7
+  #     --top-p 0.95
+  #   ttl: 600
+
+  # ministral-3-14b-q5:
+  #   # Same as q4 but Q5_K_M (~9 GiB). 14B is small enough that 128k still
+  #   # has plenty of headroom. Q4 currently outperforms Q5 on tool-use tests.
+  #   cmd: |
+  #     /opt/llama-cpp/bin/llama-server
+  #     --port ${PORT}
+  #     --model /models/ministral-3-14b-reasoning/Q5_K_M.gguf
+  #     --alias ministral-3-14b-q5
+  #     --host 127.0.0.1
+  #     -ngl 99
+  #     -c 131072
+  #     --device SYCL0
+  #     -sm none
+  #     --jinja
+  #     --chat-template-file /templates/ministral-3-reasoning.jinja
+  #     --reasoning-format deepseek
+  #     --temp 0.7
+  #     --top-p 0.95
+  #   ttl: 600
+
+  # ===========================================================================
+  # MODELS WE TESTED AND REJECTED — included here so you don't repeat the
+  # mistake. Each note has the failure mode we observed.
+  # ===========================================================================
+
+  # NEMOTRON-NANO-12B-V2 (NVIDIA hybrid Mamba/Attn 12B): looked promising
+  # (long-context, small footprint) but llama.cpp's parser cannot handle the
+  # model's `<TOOLCALL>[{...}]</TOOLCALL><SPECIAL_12>` output format and
+  # returns HTTP 500 on every tool-call request. Both Q4_K_M and Q5_K_M
+  # affected. The chat template (NVIDIA-Nemotron-Nano-v2.jinja) shipped in
+  # llama.cpp's models/templates/ is correct for prompt formatting — the bug
+  # is in the response parser. Re-evaluate when llama.cpp adds a TOOLCALL
+  # parser variant. Don't enable.
+  #
+  # QWEN2.5-CODER-7B-INSTRUCT: trained to emit `<tools>{...}</tools>` instead
+  # of the `<tool_call>` tags every common Jinja template instructs it to use.
+  # No chat template can fix this — it's a model-output bias. Even with the
+  # upstream Qwen2.5-Coder template the model ignores the instruction. Use
+  # qwen3-coder-30b instead if you want a Qwen coder.
+  #
+  # DEEPSEEK-CODER-V2-LITE: predates tool calling in DeepSeek's tokenizer
+  # family — no tool-aware chat template exists. Behaves as if it never saw
+  # the `tools` array. Use a newer DeepSeek (V3.1+) if you need DeepSeek for
+  # tool calling, or pick GLM-4.7-Flash for a similar-sized tool-aware model.
+  #
+  # CODESTRAL-22B-V0.1: pre-tool-calling Mistral. The Mistral-Nemo template
+  # gets it to emit tool calls (4/6 required tests pass) but multi-turn fails
+  # on the 9-char ID enforcement, and `tool_choice:required` is ignored. The
+  # 2026 successor is Devstral-Small-2 (above) — use that instead.
+  #
+  # QWEN3-CODER-NEXT (80B-A3B): Q4_K_M is 46 GiB — does not fit on a B70.
+  # UD-IQ3_S at 28 GiB is technically possible but llama.cpp issue #21832
+  # ("Error while using Qwen3-Code-Next for agent work") is still open.
+  #
+  # QWEN3.5-9B / 35B: same `<tool_call>`-emission bug class as Qwen2.5-Coder
+  # (llama.cpp issues #20837, #21903). Skip until upstream fixes.

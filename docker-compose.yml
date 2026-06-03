@@ -1,0 +1,59 @@
+# vulkan-llama — docker compose orchestration
+#
+# Before first run:
+#   1. Check your render/video GIDs on the host and set them in .env if different:
+#        $ getent group render video
+#      (Ubuntu commonly uses render=993, video=44 — verify on the HX 370.)
+#   2. Point MODELS_DIR at where GGUFs should live (set in .env).
+#   3. Generate the live config from models.yaml:
+#        $ make models-apply
+#   4. Build + start:
+#        $ docker compose up -d --build
+#
+# Smoke test:
+#   $ curl http://localhost:11434/v1/models
+#   $ curl http://localhost:11434/v1/chat/completions -H 'Content-Type: application/json' \
+#       -d '{"model":"gpt-oss-20b","messages":[{"role":"user","content":"hi"}]}'
+
+services:
+  llama-swap:
+    build:
+      context: .
+      args:
+        UBUNTU_TAG: "26.04"
+        LLAMA_CPP_REF: "master"
+        # LLAMA_SWAP_VERSION: "217"
+    image: vulkan-llama:latest
+    container_name: vulkan-llama
+    restart: unless-stopped
+
+    ports:
+      - "11434:11434"
+
+    # AMD iGPU passthrough — Vulkan/RADV needs only the DRM render node
+    # (/dev/dri). No /dev/kfd (that's ROCm), no special runtime (that's NVIDIA).
+    devices:
+      - /dev/dri
+
+    # The container user needs the host's render/video group IDs to open
+    # /dev/dri. Override RENDER_GID / VIDEO_GID in .env to match `getent group`.
+    group_add:
+      - "${RENDER_GID:-993}"
+      - "${VIDEO_GID:-44}"
+
+    volumes:
+      # Bind the config *directory* (not the file) so --watch-config sees edits.
+      - ./config:/config:ro
+      # GGUF models. Set MODELS_DIR in .env.
+      - ${MODELS_DIR:-/opt/apps/models}:/models:ro
+      # Tool-aware Jinja chat templates referenced from the generated config.
+      - ./templates:/templates:ro
+
+    # Headroom for big contexts / batch sizes.
+    shm_size: "8gb"
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
