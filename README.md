@@ -11,6 +11,7 @@ gfx1150), XDNA2 NPU, 96 GB unified RAM.
 ## Status
 
 🚧 **Bootstrapping.** See the plan: [docs/improvements/001-bootstrap-vulkan-llama.md](docs/improvements/001-bootstrap-vulkan-llama.md).
+Target OS: **Ubuntu 26.04 LTS** (kernel 7.0, native `amdxdna` NPU driver).
 
 ## Why Vulkan (not ROCm) on this iGPU
 

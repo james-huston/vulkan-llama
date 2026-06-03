@@ -60,7 +60,9 @@ a unified server) as a **tracked Phase 2 experiment** — because the research f
 ## Phased plan
 
 ### Phase 1 — Vulkan iGPU workhorse  *(primary deliverable)*
-- [ ] **OS:** Linux bare-metal (Ubuntu 25.10 / kernel ≥6.14) — see OS note below.
+- [ ] **OS:** Linux bare-metal — **Ubuntu 26.04 LTS "Resolute Raccoon"** (kernel
+      7.0, native `amdxdna` NPU driver; LTS support). Enable **IOMMU** in BIOS and
+      update `linux-firmware` (≥20260221) at install. See OS note below.
 - [ ] Port the `battlemage-llama` scaffolding: `docker-compose.yml`, `Makefile`,
       `scripts/` (apply-models, sync-litellm, status, test-models), `models.yaml`,
       `tests/`, docs structure.
@@ -88,11 +90,13 @@ a unified server) as a **tracked Phase 2 experiment** — because the research f
 
 ## Decisions & constraints (carry-overs)
 
-- **OS = Linux bare-metal.** Vulkan iGPU works great in Docker via `/dev/dri`, but
-  the NPU needs IOMMU + amdxdna and has a container passthrough bug, so bare-metal
-  keeps the Phase-2 NPU door open. WSL2 is a fallback for the iGPU only; NPU-in-WSL2
-  is unproven. (Windows-on-host would unlock AMD's Hybrid NPU mode but loses the
-  Docker/llama-swap workflow — not chosen.)
+- **OS = Ubuntu 26.04 LTS bare-metal** (kernel 7.0 → native `amdxdna`; LTS; the
+  lemonade PPA supports it for Phase 2). Chosen over 25.10 (near-EOL) and over an
+  LTS-with-frozen-old-kernel. Vulkan iGPU works in Docker via `/dev/dri`, but the
+  NPU needs IOMMU + amdxdna and has a container passthrough bug, so bare-metal
+  keeps the Phase-2 NPU door open. WSL2 is iGPU-only; NPU-in-WSL2 is unproven.
+  (Windows-on-host would unlock AMD's Hybrid NPU mode but loses the Docker/llama-swap
+  workflow — not chosen.)
 - **MoE-first** model strategy (bandwidth-bound decode).
 - Repo named **`vulkan-llama`** (the API is "Vulkan").
 
