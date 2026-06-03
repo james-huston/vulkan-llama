@@ -1,0 +1,20 @@
+# Generated serving config (produced from models.yaml) — models.yaml is the source of truth
+config/llama-swap.yaml
+config/llama-swap.yaml.bak
+
+# Local environment overrides / secrets
+.env
+
+# Claude Code local session artifacts
+.claude/
+
+# Python bytecode
+__pycache__/
+*.pyc
+
+# Editor / OS cruft
+.DS_Store
+.vscode/
+.idea/
+*.swp
+*~
