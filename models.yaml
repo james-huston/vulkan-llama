@@ -23,11 +23,81 @@ cost:
 
 models:
   # ===========================================================================
-  # MoE workhorses — low active params = fast on bandwidth-limited memory
+  # GEMMA 4 (Google) — PRIMARY test set (characterized on the B70; see
+  # battlemage-llama docs/investigations/gemma-4-tuning.md). Reasoner
+  # (reasoning_content); structured tool calling 6/7 (tool_choice:required not
+  # honored). Gemma sampling: temp 1.0, top_k 64, top_p 0.95, min_p 0, sampler
+  # order temperature;top_p;top_k. Multimodal repos but run text-only.
+  # decode_tps are PLACEHOLDERS for the 890M — benchmark with llama-bench.
+  # ===========================================================================
+
+  - name: gemma-4-12b
+    enabled: true
+    decode_tps: 20
+    litellm:
+      description: "Gemma 4 12B (Google) dense; reasoner; full tool calling (tool_choice:required not honored)."
+      supports_function_calling: true
+      supports_tool_choice: false
+      supports_reasoning: true
+    ctx: 32768
+    temp: 1.0
+    top_p: 0.95
+    extra: "--top-k 64 --min-p 0.0 --samplers temperature;top_p;top_k"
+    repo: unsloth/gemma-4-12b-it-GGUF
+    file: gemma-4-12b-it-Q4_K_M.gguf
+    dir: gemma-4-12b
+    out: Q4_K_M.gguf
+    source: "https://huggingface.co/unsloth/gemma-4-12b-it-GGUF"
+    notes: >-
+      FIRST smoke-test model on the 890M (~7.1 GB Q4_K_M). Tuning per the
+      battlemage gemma-4 investigation. ctx 32k to start (iGPU is bandwidth-
+      limited — keep modest, then benchmark decode-vs-context).
+
+  - name: gemma-4-26b-a4b
+    enabled: false
+    decode_tps: 25
+    litellm:
+      description: "Gemma 4 26B-A4B (Google) MoE, 4B active; reasoner; full tool calling (tool_choice:required not honored)."
+      supports_function_calling: true
+      supports_tool_choice: false
+      supports_reasoning: true
+    ctx: 32768
+    temp: 1.0
+    top_p: 0.95
+    extra: "--top-k 64 --min-p 0.0 --samplers temperature;top_p;top_k"
+    repo: unsloth/gemma-4-26B-A4B-it-GGUF
+    file: gemma-4-26B-A4B-it-UD-Q4_K_M.gguf
+    dir: gemma-4-26b-a4b
+    out: Q4_K_M.gguf
+    source: "https://huggingface.co/unsloth/gemma-4-26B-A4B-it-GGUF"
+    notes: "MoE 26B/A4B (~16.9 GB) — fastest Gemma on the B70 (low active params); likely the sweet spot on this APU too. Flip on after the 12b smoke test."
+
+  - name: gemma-4-31b
+    enabled: false
+    decode_tps: 7
+    litellm:
+      description: "Gemma 4 31B (Google) dense; strongest Gemma 4; reasoner; full tool calling (tool_choice:required not honored)."
+      supports_function_calling: true
+      supports_tool_choice: false
+      supports_reasoning: true
+    ctx: 16384
+    temp: 1.0
+    top_p: 0.95
+    extra: "--top-k 64 --min-p 0.0 --samplers temperature;top_p;top_k"
+    repo: unsloth/gemma-4-31B-it-GGUF
+    file: gemma-4-31B-it-Q4_K_M.gguf
+    dir: gemma-4-31b
+    out: Q4_K_M.gguf
+    source: "https://huggingface.co/unsloth/gemma-4-31B-it-GGUF"
+    notes: "Dense 31B (~18.3 GB) — slowest (dense, bandwidth-bound); start ctx low. Flip on after the 12b smoke test."
+
+  # ===========================================================================
+  # MoE workhorses — low active params = fast on bandwidth-limited memory.
+  # The Qwen MoEs we know from the B70 — flip on for comparison after Gemma.
   # ===========================================================================
 
   - name: gpt-oss-20b
-    enabled: true
+    enabled: false
     decode_tps: 40
     litellm:
       description: "OpenAI gpt-oss 20B-A3.6B (MoE, native MXFP4); tools + reasoning."
@@ -43,7 +113,7 @@ models:
     notes: "Smallest active-param MoE (A3.6B) — likely the fastest model here. Good default agent."
 
   - name: qwen3-coder-30b
-    enabled: true
+    enabled: false
     decode_tps: 35
     litellm:
       description: "Qwen3 Coder 30B-A3B (MoE) — primary coder; full tool calling."
@@ -60,7 +130,7 @@ models:
     notes: "MoE A3B — ideal for this APU (low active params). The opencode 'build' default candidate."
 
   - name: qwen3.6-35b-a3b-q4-thinking
-    enabled: true
+    enabled: false
     decode_tps: 30
     litellm:
       description: "Qwen3.6 35B-A3B (MoE, hybrid DeltaNet) reasoning exposed (deepseek)."
@@ -83,7 +153,7 @@ models:
   # ===========================================================================
 
   - name: qwen3.6-27b-q4
-    enabled: true
+    enabled: false
     decode_tps: 8
     litellm:
       description: "Qwen3.6 dense 27B — strong coding; slower (dense, bandwidth-bound)."
