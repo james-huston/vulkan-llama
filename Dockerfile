@@ -20,7 +20,7 @@ ARG DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         git cmake ninja-build build-essential pkg-config ca-certificates curl wget \
-        libvulkan-dev glslc vulkan-tools \
+        libvulkan-dev glslc glslang-tools spirv-headers spirv-tools vulkan-tools \
         mesa-vulkan-drivers libvulkan1 && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
