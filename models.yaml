@@ -54,7 +54,7 @@ models:
       limited — keep modest, then benchmark decode-vs-context).
 
   - name: gemma-4-26b-a4b
-    enabled: false
+    enabled: true
     decode_tps: 25
     litellm:
       description: "Gemma 4 26B-A4B (Google) MoE, 4B active; reasoner; full tool calling (tool_choice:required not honored)."
@@ -73,7 +73,7 @@ models:
     notes: "MoE 26B/A4B (~16.9 GB) — fastest Gemma on the B70 (low active params); likely the sweet spot on this APU too. Flip on after the 12b smoke test."
 
   - name: gemma-4-31b
-    enabled: false
+    enabled: true
     decode_tps: 7
     litellm:
       description: "Gemma 4 31B (Google) dense; strongest Gemma 4; reasoner; full tool calling (tool_choice:required not honored)."
