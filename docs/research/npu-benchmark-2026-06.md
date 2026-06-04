@@ -5,10 +5,11 @@ vs the same chip's **Radeon 890M iGPU** (llama.cpp Vulkan) and our **Arc Pro B70
 (SYCL)? This tests the [NPU research](npu-xdna2-2026-06.md) prediction (~18 t/s)
 against reality.
 
-**Verdict (so far): no.** On the same chip the **iGPU is ~4× faster than the NPU**,
-and the NPU's **prefill is catastrophic** (~8–10 t/s). The research's ~18 t/s did
-not reproduce — we measured **6.8 t/s**. Dense-model test pending to be fair to the
-NPU (MoE can be pathological on NPUs).
+**Verdict: no — the NPU is the slowest of the three on both a MoE and a dense model.**
+On the same chip the **iGPU is ~4–5× faster than the NPU** (28.4 vs 6.8 MoE; 16.5 vs
+3.4 dense), and the NPU's **prefill is catastrophic** (~10 t/s vs the iGPU's 350–635).
+The research's ~18 t/s reproduced on neither model. Dense did **not** help — it was
+worse. Not a usable LLM decode engine on current FastFlowLM.
 
 ## Setup
 
@@ -33,20 +34,24 @@ NPU `performance` pmode ≈ 6.3 t/s; `turbo` ≈ 6.8 — power mode barely matte
 
 ### `llama3.1:8b` (8B, **dense**, Q4_K_M) — decode tok/s
 
-| Backend | hardware | prefill (pp512) | **decode (tg128)** |
-|---|---|---|---|
-| **B70** | discrete Arc (SYCL) | _pending_ | _pending_ |
-| **890M** | iGPU (Vulkan) | _pending_ | _pending_ |
-| **NPU** | XDNA2 (FastFlowLM, turbo) | _pending_ | _pending_ |
+| Backend | hardware | prefill (pp512) | **decode (tg128)** | vs NPU decode |
+|---|---|---|---|---|
+| **B70** | discrete Arc (SYCL) | 2964 | **85.0** | 25× |
+| **890M** | iGPU (Vulkan) | 353 | **16.5** | 4.9× |
+| **NPU** | XDNA2 (FastFlowLM, turbo) | ~11 | **3.4** | 1× |
 
-_(Filling in to test whether the NPU is meaningfully better on a dense model than on
-the gpt-oss MoE — the most likely explanation for the research's 18 t/s figure.)_
+**The dense test did NOT redeem the NPU — it was *worse*** (3.4 vs its own 6.8 on the
+MoE). Reason: the NPU is also active-param/bandwidth-limited, so the MoE's 4B active
+beats dense 8B even there. The research's ~18 t/s reproduced on **neither** model.
 
 ## Takeaways
 
-- On the **same chip**, the iGPU (Vulkan) beats the NPU by **~4×** on the MoE and
-  prefills **~60× faster**. For inference, the NPU is the *slowest* of the three.
-- The B70 remains the speed king (~2× the iGPU, ~8× the NPU).
+- On the **same chip**, the iGPU (Vulkan) beats the NPU by **~4× on the MoE and ~5×
+  on dense**, and prefills **30–60× faster**. The NPU is the *slowest* of the three
+  on every test, and dense made it *worse*. Not redeemable on current FastFlowLM.
+- The B70 is the speed king (≈2× the iGPU, 8–25× the NPU).
+- **MoE > dense on bandwidth-limited memory** (both iGPU and NPU): low active params
+  win — gpt-oss MoE beats llama-3.1 dense on the iGPU (28.4 vs 16.5) and NPU (6.8 vs 3.4).
 - The HX 370 box's only real edge stays **capacity** (73 GB addressable: 48 GB UMA
   VRAM + GTT, vs the B70's 32 GB) — run models the B70 can't hold — at ~half B70 speed.
 - The NPU may still have niche value (low power, concurrent with the GPU, Whisper/

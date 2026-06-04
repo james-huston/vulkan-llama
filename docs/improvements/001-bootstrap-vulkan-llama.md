@@ -104,18 +104,18 @@ the 26B-A4B @ 20 t/s is the only interactive Gemma; dense 31B is capacity/qualit
 - sd-server (image gen) deferred — add a `-DSD_VULKAN=ON` build block later.
 - Tool-use suite on the 890M (capability should match the B70; verify when convenient).
 
-### Phase 2 — NPU evaluation  *(complement; evidence-led)*
-- [ ] Install the Linux NPU stack: `ppa:lemonade-team/stable` →
-      `libxrt-npu2 amdxdna-dkms`; enable **IOMMU**; firmware ≥1.1.0.0; memlock.
-- [ ] Stand up **Lemonade / FastFlowLM** (likely bare-metal due to the container
-      bug) and confirm the NPU `/v1` endpoint answers.
-- [ ] **Benchmark NPU vs 890M-Vulkan vs CPU** on the same model/quant (7B–14B) —
-      fill the research gap. Record decode + prefill + TTFT.
-- [ ] Find the largest practical NPU model; test tool-calling / long context under
-      opencode + LiteLLM.
-- [ ] **Decide:** (i) keep llama-swap + add the NPU as a LiteLLM-routed side
-      endpoint for models where it wins, or (ii) migrate the whole server to
-      Lemonade (unified iGPU+NPU). Record the call here.
+### Phase 2 — NPU evaluation  *(done — verdict: not worth it for LLM decode)*
+- [x] Installed the Linux NPU stack (FastFlowLM v0.9.43 + `libxrt-npu2`, native
+      `amdxdna` on kernel 7.0, FW 1.1.2.64, memlock unlimited). `flm validate` green;
+      `flm serve` → OpenAI `/v1` on `:52625`.
+- [x] **Benchmarked NPU vs 890M-Vulkan vs B70** on gpt-oss-20b (MoE) and llama3.1:8b
+      (dense) — full table in [`docs/research/npu-benchmark-2026-06.md`](../research/npu-benchmark-2026-06.md).
+- **Verdict:** the **NPU is the slowest of the three** — MoE decode 6.8 t/s (vs iGPU
+      28.4, B70 52.9); dense 3.4 t/s (vs iGPU 16.5, B70 85). Prefill ~10 t/s
+      (catastrophic). The research's ~18 t/s reproduced on neither model. **Stick with
+      the iGPU (Vulkan) as the LLM engine; the NPU is not a useful decode path on
+      current FastFlowLM.** (Possible niche later: Whisper/embeddings, or running
+      *concurrently* with the GPU — untested, low priority.)
 
 ## Decisions & constraints (carry-overs)
 
