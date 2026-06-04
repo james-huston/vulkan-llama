@@ -71,23 +71,38 @@ a unified server) as a **tracked Phase 2 experiment** — because the research f
       Ubuntu 26.04 base; `docker-compose.yml` passes `/dev/dri` (no kfd/runtime).
 - [x] **apply-models.py**: generates `--device Vulkan0` (was `--device SYCL0`);
       `device:` overridable per model.
-- [x] **`models.yaml`**: MoE-first (gpt-oss-20B, Qwen3-Coder-30B-A3B,
-      Qwen3.6-35B-A3B) + dense Qwen3.6-27B + a 96 GB capacity candidate
-      (GLM-4.7-Flash, disabled). Validated via `apply-models --dry-run`.
-- [ ] **Verify on hardware:** `vulkaninfo` sees the 890M; a model loads via
-      `-ngl 99` on Vulkan0; OpenAI `/v1` responds; llama-swap hot-swap works;
-      `make sync-litellm` works.
-- [ ] **Benchmark** decode-vs-context and tok/s per model (llama-bench) on the
-      890M — replace the placeholder `decode_tps` and set the baseline the NPU
-      must beat.
+- [x] **`models.yaml`**: now **Gemma-first** (the set we characterized on the B70)
+      + the Qwen MoEs staged behind them.
+- [x] **Verified on hardware (2026-06-04):** built clean on the box (after adding
+      `spirv-headers`/`spirv-tools`/`glslang-tools`); container drives the 890M
+      (`Vulkan0: AMD Radeon 890M (RADV STRIX1), 73 GB addressable`); `/v1` responds;
+      `gemma-4-12b` first token in 11s; `make status` reads amdgpu sysfs.
+- [x] **Benchmarked** all 3 Gemma — see results below. `decode_tps` set to real values.
 
-**Remaining AMD adaptations (TODO):**
-- `scripts/status.py` uses Intel `xpu-smi` → swap to `amdgpu_top`/`radeontop`.
-- `config/llama-swap.example.yaml` still shows SYCL flags → regenerate/refresh.
-- Confirm `--device Vulkan0` is the right selector on real hardware (vs relying
-  on `GGML_VK_VISIBLE_DEVICES`); single-iGPU may not need `-sm none`.
-- `templates/` carried over from battlemage — prune to what this lineup uses.
+### Phase 1 results (Radeon 890M, Vulkan, 2026-06-04)
+
+| model | active | size | prefill pp512 | **decode tg128** | B70 (SYCL) decode |
+|---|---|---|---|---|---|
+| gemma-4-26b-**a4b** (MoE) | 4B | 15.8 GiB | 440 t/s | **20.1 t/s** | 74.9 (3.7×) |
+| gemma-4-12b (dense) | 11.9B | 6.6 GiB | 211 t/s | 9.9 t/s | 51.9 (5.2×) |
+| gemma-4-31b (dense) | 30.7B | 17.1 GiB | 81 t/s | 4.2 t/s | 23.0 (5.5×) |
+
+**Headline:** on this bandwidth-limited iGPU (~120 GB/s vs the B70's ~456), **active
+params set the speed, not total size** — the 26B-A4B MoE decodes **2× faster than the
+12B dense** despite being 2.4× larger. The 890M is ~4–5.5× slower than the B70 but
+has **73 GB addressable** (48 GB UMA VRAM + GTT) vs 32 GB. ⇒ **MoE-first is the rule;
+the 26B-A4B @ 20 t/s is the only interactive Gemma; dense 31B is capacity/quality only.**
+
+**Hardware as found:** Ubuntu 26.04 / kernel 7.0, Mesa 26.0.3 (RADV), 96 GB RAM split
+48 GB UMA VRAM + 46 GB system; NPU (`/dev/accel/accel0`, amdxdna) present → Phase 2 reachable.
+
+**Remaining Phase-1 polish (TODO):**
+- ✅ `status.py` ported to amdgpu sysfs.
+- `config/llama-swap.example.yaml` still shows SYCL flags → refresh.
+- Decode-vs-context bench on the 890M (does the cliff bite harder at low bandwidth?).
+- `templates/` carried over from battlemage — prune to this lineup.
 - sd-server (image gen) deferred — add a `-DSD_VULKAN=ON` build block later.
+- Tool-use suite on the 890M (capability should match the B70; verify when convenient).
 
 ### Phase 2 — NPU evaluation  *(complement; evidence-led)*
 - [ ] Install the Linux NPU stack: `ppa:lemonade-team/stable` →
