@@ -33,7 +33,7 @@ models:
 
   - name: gemma-4-12b
     enabled: true
-    decode_tps: 20
+    decode_tps: 10
     litellm:
       description: "Gemma 4 12B (Google) dense; reasoner; full tool calling (tool_choice:required not honored)."
       supports_function_calling: true
@@ -55,7 +55,7 @@ models:
 
   - name: gemma-4-26b-a4b
     enabled: true
-    decode_tps: 25
+    decode_tps: 20
     litellm:
       description: "Gemma 4 26B-A4B (Google) MoE, 4B active; reasoner; full tool calling (tool_choice:required not honored)."
       supports_function_calling: true
@@ -74,7 +74,7 @@ models:
 
   - name: gemma-4-31b
     enabled: true
-    decode_tps: 7
+    decode_tps: 4
     litellm:
       description: "Gemma 4 31B (Google) dense; strongest Gemma 4; reasoner; full tool calling (tool_choice:required not honored)."
       supports_function_calling: true
